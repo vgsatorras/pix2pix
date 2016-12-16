@@ -159,7 +159,7 @@ def save_worker(image, path):
 
 
 
-def main(train_images = 300, val_images = 300, max_memory_images = 300):
+def main(train_images = 200000, val_images = 30000, max_memory_images = 300):
     print "Loading labels.."
     _init_()
     LOADER = DataLoader(images_path = images_path_train, 
@@ -177,6 +177,7 @@ def main(train_images = 300, val_images = 300, max_memory_images = 300):
     jobs = []
     for i in range(train_images/max_memory_images):
         train_batch = LOADER.load_data(verbose = 0)
+        if LOADER.epoch > 0: break
         for j in range(train_batch.shape[0]):
             j = threading.Thread(target=save_worker, args=(train_batch[j], '../datasets/places/train/'+str(iters)+'.png'))
             j.start()
@@ -190,6 +191,7 @@ def main(train_images = 300, val_images = 300, max_memory_images = 300):
     jobs = []
     for i in range(val_images/max_memory_images):
         val_batch = LOADER_VAL.load_data(verbose = 0)
+        if LOADER_VAL.epoch > 0: break
         for j in range(val_batch.shape[0]):
             j = threading.Thread(target=save_worker, args=(val_batch[j], '../datasets/places/val/'+str(iters)+'.png'))
             j.start()

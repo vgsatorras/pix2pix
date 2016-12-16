@@ -9,17 +9,18 @@ require 'optim'
 util = paths.dofile('util/util.lua')
 require 'image'
 require 'models'
-
+require 'graph'
 
 opt = {
-   DATA_ROOT = '',         -- path to images (should have subfolders 'train', 'val', etc)
+   --DATA_ROOT = '/imatge/vgarcia/pix2pix/datasets/facades',         -- path to images (should have subfolders 'train', 'val', etc)
+   DATA_ROOT = '/imatge/vgarcia/datasets/places',
    batchSize = 1,          -- # images in batch
    loadSize = 286,         -- scale images to this size
    fineSize = 256,         --  then crop to this size
    ngf = 64,               -- #  of gen filters in first conv layer
    ndf = 64,               -- #  of discrim filters in first conv layer
-   input_nc = 3,           -- #  of input image channels
-   output_nc = 3,          -- #  of output image channels
+   input_nc = 1,           -- #  of input image channels
+   output_nc = 2,          -- #  of output image channels
    niter = 200,            -- #  of iter at starting learning rate
    lr = 0.0002,            -- initial learning rate for adam
    beta1 = 0.5,            -- momentum term of adam
@@ -28,10 +29,10 @@ opt = {
    display = 1,            -- display samples while training. 0 = false
    display_id = 10,        -- display window id.
    gpu = 1,                -- gpu = 0 is CPU mode. gpu=X is GPU mode on GPU X
-   name = '',              -- name of the experiment, should generally be passed on the command line
+   name = 'v19_mse_4DL_3D_swt',-- name of the experiment, should generally be passed on the command line
    which_direction = 'AtoB',    -- AtoB or BtoA
    phase = 'train',             -- train, val, test, etc
-   preprocess = 'regular',      -- for special purpose preprocessing, e.g., for colorization, change this (selects preprocessing functions in util.lua)
+   preprocess = 'colorization',      -- for special purpose preprocessing, e.g., for colorization, change this (selects preprocessing functions in util.lua)
    nThreads = 2,                -- # threads for loading data
    save_epoch_freq = 50,        -- save a model every save_epoch_freq epochs (does not overwrite previously saved models)
    save_latest_freq = 5000,     -- save the latest model every latest_freq sgd iterations (overwrites the previous latest model)
@@ -46,10 +47,14 @@ opt = {
    condition_GAN = 1,                 -- set to 0 to use unconditional discriminator
    use_GAN = 1,                       -- set to 0 to turn off GAN term
    use_L1 = 1,                        -- set to 0 to turn off L1 term
-   which_model_netD = 'basic', -- selects model to use for netD
+   which_model_netD = 'n_layers', -- selects model to use for netD
    which_model_netG = 'unet',  -- selects model to use for netG
-   n_layers_D = 0,             -- only used if which_model_netD=='n_layers'
+   n_layers_D = 4,             -- only used if which_model_netD=='n_layers'
    lambda = 100,               -- weight on L1 term in objective
+   lambda_d256 = 0.333,
+   lambda_d128 = 0.333,
+   lambda_d64 = 0.333,
+   share_weights = true        -- Share Weights of the discriminator 64x64 <--> 128, 256
 }
 
 -- one-line argument parser. parses enviroment variables to override the defaults
@@ -112,6 +117,10 @@ function defineG(input_nc, output_nc, ngf, nz)
     end
    
    netG:apply(weights_init)
+
+   
+   --graph.dot(netG.fg, 'netG',  opt.checkpoints_dir .. '/' .. opt.name .. '/' .. 'schemes' .. '/' .. 'netG')
+
    
    return netG
 end
@@ -138,23 +147,39 @@ end
 
 -- load saved models and finetune
 if opt.continue_train == 1 then
-   print('loading previously trained netG...')
-   netG = util.load(paths.concat(opt.checkpoints_dir, opt.name, 'latest_net_G.t7'), opt)
-   print('loading previously trained netD...')
-   netD = util.load(paths.concat(opt.checkpoints_dir, opt.name, 'latest_net_D.t7'), opt)
+  print('loading previously trained netG...')
+  netG = util.load(paths.concat(opt.checkpoints_dir, opt.name, 'latest_net_G.t7'), opt)
+  print('loading previously trained netD...')
+  netD = util.load(paths.concat(opt.checkpoints_dir, opt.name, 'latest_net_D.t7'), opt)
 else
   print('define model netG...')
   netG = defineG(input_nc, output_nc, ngf, nz)
   print('define model netD...')
   netD = defineD(input_nc, output_nc, ndf)
+  print ('define model netD_s2...')
+  netD_s2 = defineD_sn(netD:clone('weight','bias'), 1)
+  print ('define model netD_s4...')
+  if opt.share_weights == true then
+    netD_s4 = defineD_sn(netD:clone('weight','bias'), 2)
+  else
+    netD_s4 = defineD_sn(defineD(input_nc, output_nc, ndf), 2)
+  end 
 end
 
+print('\nnetG')
 print(netG)
+print('\nnetD')
 print(netD)
+print('\nnetD_s2')
+print(netD_s2)
+print('\nnetD_s4')
+print(netD_s4)
+
 
 
 local criterion = nn.BCECriterion()
 local criterionAE = nn.AbsCriterion()
+local criterionMSE = nn.MSECriterion()
 ---------------------------------------------------------------------------
 optimStateG = {
    learningRate = opt.lr,
@@ -170,7 +195,7 @@ local real_B = torch.Tensor(opt.batchSize, output_nc, opt.fineSize, opt.fineSize
 local fake_B = torch.Tensor(opt.batchSize, output_nc, opt.fineSize, opt.fineSize)
 local real_AB = torch.Tensor(opt.batchSize, output_nc + input_nc*opt.condition_GAN, opt.fineSize, opt.fineSize)
 local fake_AB = torch.Tensor(opt.batchSize, output_nc + input_nc*opt.condition_GAN, opt.fineSize, opt.fineSize)
-local errD, errG, errL1 = 0, 0, 0
+local errD, errG_s0, errG_s2, errG_s4, errG, errL1 = 0, 0, 0, 0, 0, 0, 0, 0
 local epoch_tm = torch.Timer()
 local tm = torch.Timer()
 local data_tm = torch.Timer()
@@ -183,10 +208,11 @@ if opt.gpu > 0 then
    real_A = real_A:cuda();
    real_B = real_B:cuda(); fake_B = fake_B:cuda();
    real_AB = real_AB:cuda(); fake_AB = fake_AB:cuda();
+   
    if opt.cudnn==1 then
-      netG = util.cudnn(netG); netD = util.cudnn(netD);
+      netG = util.cudnn(netG); netD = util.cudnn(netD); netD_s2 = util.cudnn(netD_s2);  netD_s4 = util.cudnn(netD_s4)
    end
-   netD:cuda(); netG:cuda(); criterion:cuda(); criterionAE:cuda();
+   netD:cuda(); netG:cuda(); netD_s2:cuda(); netD_s4:cuda(); criterion:cuda(); criterionAE:cuda(); criterionMSE:cuda();
    print('done')
 else
 	print('running model on CPU')
@@ -194,6 +220,8 @@ end
 
 
 local parametersD, gradParametersD = netD:getParameters()
+local parametersD_s2, gradParametersD_s2 = netD_s2:getParameters()
+local parametersD_s4, gradParametersD_s4 = netD_s4:getParameters()
 local parametersG, gradParametersG = netG:getParameters()
 
 
@@ -224,39 +252,88 @@ function createRealFake()
     else
         fake_AB = fake_B -- unconditional GAN, only penalizes structure in B
     end
+
     local predict_real = netD:forward(real_AB)
     local predict_fake = netD:forward(fake_AB)
 end
 
 -- create closure to evaluate f(X) and df/dX of discriminator
-local fDx = function(x)
-    netD:apply(function(m) if torch.type(m):find('Convolution') then m.bias:zero() end end)
+local fDx_sn = function(netD_sn, gradParametersD_sn)
+    netD_sn:apply(function(m) if torch.type(m):find('Convolution') then m.bias:zero() end end)
     netG:apply(function(m) if torch.type(m):find('Convolution') then m.bias:zero() end end)
     
-    gradParametersD:zero()
+    gradParametersD_sn:zero()
     
-    -- Real
-    local output = netD:forward(real_AB)
-    local label = torch.FloatTensor(output:size()):fill(real_label)
+    -- Real sn
+    local output_sn = netD_sn:forward(real_AB)
+    local label_sn = torch.FloatTensor(output_sn:size()):fill(real_label)
     if opt.gpu>0 then 
-    	label = label:cuda()
+      label_sn = label_sn:cuda()
     end
     
-    local errD_real = criterion:forward(output, label)
-    local df_do = criterion:backward(output, label)
-    netD:backward(real_AB, df_do)
-    
-    -- Fake
-    local output = netD:forward(fake_AB)
-    label:fill(fake_label)
-    local errD_fake = criterion:forward(output, label)
-    local df_do = criterion:backward(output, label)
-    netD:backward(fake_AB, df_do)
-    
-    errD = (errD_real + errD_fake)/2
-    
-    return errD, gradParametersD
+    local errD_real = criterion:forward(output_sn, label_sn)
+    local df_do = criterion:backward(output_sn, label_sn)
+    netD_sn:backward(real_AB, df_do)
+
+
+    -- Fake sn
+    local output_sn = netD_sn:forward(fake_AB)
+    label_sn:fill(fake_label)
+    local errD_fake = criterion:forward(output_sn, label_sn)
+    local df_do = criterion:backward(output_sn, label_sn)
+    netD_sn:backward(fake_AB, df_do)
+ 
+
+    errD_sn = (errD_real + errD_fake)/2
+    errD = errD + errD_sn
+    return errD_sn, gradParametersD_sn
 end
+
+local fDx_s0 = function(x)
+   return fDx_sn(netD, gradParametersD)
+end
+
+local fDx_s2 = function(x)
+    return fDx_sn(netD_s2, gradParametersD_s2) 
+end
+
+local fDx_s4 = function(x)
+    return fDx_sn(netD_s4, gradParametersD_s4) 
+end
+
+--[[
+local fDx_s2 = function(x)
+    netD_s2:apply(function(m) if torch.type(m):find('Convolution') then m.bias:zero() end end)
+    
+    gradParametersD_s2:zero()
+    
+    -- Real s2
+    local output_s2 = netD_s2:forward(real_AB)
+    local label_s2 = torch.FloatTensor(output_s2:size()):fill(real_label)
+    if opt.gpu>0 then 
+      label_s2 = label_s2:cuda()
+    end
+    
+
+    local errD_real = criterion:forward(output_s2, label_s2)
+    local df_do = criterion:backward(output_s2, label_s2)
+    netD_s2:backward(real_AB, df_do)
+    
+    
+    -- Fake s2
+    local output_s2 = netD_s2:forward(fake_AB)
+    label_s2:fill(fake_label)
+    local errD_fake = criterion:forward(output_s2, label_s2)
+    local df_do = criterion:backward(output_s2, label_s2)
+    netD_s2:backward(fake_AB, df_do)
+
+
+
+    errD = (errD_real + errD_fake)/2
+    gradParametersD_s2
+    return errD, gradParametersD_s2
+end
+]]--
 
 -- create closure to evaluate f(X) and df/dX of generator
 local fGx = function(x)
@@ -272,16 +349,44 @@ local fGx = function(x)
     end
     
     if opt.use_GAN==1 then
+       -- s0
        local output = netD.output -- netD:forward{input_A,input_B} was already executed in fDx, so save computation
        local label = torch.FloatTensor(output:size()):fill(real_label) -- fake labels are real for generator cost
        if opt.gpu>0 then 
        	label = label:cuda();
        	end
-       errG = criterion:forward(output, label)
+       errG_s0 = criterion:forward(output, label)
        local df_do = criterion:backward(output, label)
        df_dg = netD:updateGradInput(fake_AB, df_do):narrow(2,fake_AB:size(2)-output_nc+1, output_nc)
+
+       
+       -- s2
+       local output_s2 = netD_s2.output -- netD:forward{input_A,input_B} was already executed in fDx, so save computation
+       local label_s2 = torch.FloatTensor(output_s2:size()):fill(real_label) -- fake labels are real for generator cost
+       if opt.gpu>0 then 
+        label_s2 = label_s2:cuda();
+       end
+
+       errG_s2 = criterion:forward(output_s2, label_s2)
+       local df_do = criterion:backward(output_s2, label_s2)
+       updated_gradients = netD_s2:updateGradInput(fake_AB, df_do)
+       df_dg_s2 = updated_gradients:narrow(2,fake_AB:size(2)-output_nc+1, output_nc)
+
+       -- s4
+       local output_s4 = netD_s4.output -- netD:forward{input_A,input_B} was already executed in fDx, so save computation
+       local label_s4 = torch.FloatTensor(output_s4:size()):fill(real_label) -- fake labels are real for generator cost
+       if opt.gpu>0 then 
+        label_s4 = label_s4:cuda();
+       end
+
+       errG_s4 = criterion:forward(output_s4, label_s4)
+       local df_do = criterion:backward(output_s4, label_s4)
+       updated_gradients = netD_s4:updateGradInput(fake_AB, df_do)
+       df_dg_s4 = updated_gradients:narrow(2,fake_AB:size(2)-output_nc+1, output_nc)
+
+
     else
-        errG = 0
+        errG_s0, errG_s2, errG_s4 = 0, 0, 0
     end
     
     -- unary loss
@@ -290,14 +395,15 @@ local fGx = function(x)
     	df_do_AE = df_do_AE:cuda();
     end
     if opt.use_L1==1 then
-       errL1 = criterionAE:forward(fake_B, real_B)
-       df_do_AE = criterionAE:backward(fake_B, real_B)
+       errL1 = criterionMSE:forward(fake_B, real_B)
+       df_do_AE = criterionMSE:backward(fake_B, real_B)
     else
         errL1 = 0
     end
     
-    netG:backward(real_A, df_dg + df_do_AE:mul(opt.lambda))
+    netG:backward(real_A, df_dg:mul(opt.lambda_d256) + df_dg_s2:mul(opt.lambda_d128) + df_dg_s4:mul(opt.lambda_d64) + df_do_AE:mul(opt.lambda))
     
+    errG = (errG_s0*opt.lambda_d256 + errG_s2*opt.lambda_d128 + errG_s4*opt.lambda_d64)/(opt.lambda_d256 + opt.lambda_d128 + opt.lambda_d64)
     return errG, gradParametersG
 end
 
@@ -308,6 +414,7 @@ end
 local best_err = nil
 paths.mkdir(opt.checkpoints_dir)
 paths.mkdir(opt.checkpoints_dir .. '/' .. opt.name)
+paths.mkdir(opt.checkpoints_dir .. '/' .. opt.name .. '/' .. 'schemes')
 
 -- save opt
 file = torch.DiskFile(paths.concat(opt.checkpoints_dir, opt.name, 'opt.txt'), 'w')
@@ -324,13 +431,19 @@ for epoch = 1, opt.niter do
         createRealFake()
         
         -- (1) Update D network: maximize log(D(x,y)) + log(1 - D(x,G(x)))
-        if opt.use_GAN==1 then optim.adam(fDx, parametersD, optimStateD) end
+        if opt.use_GAN==1 then
+          errD = 0
+          optim.adam(fDx_s0, parametersD, optimStateD)
+          optim.adam(fDx_s2, parametersD_s2, optimStateD)
+          optim.adam(fDx_s4, parametersD_s4, optimStateD)
+        end
         
         -- (2) Update G network: maximize log(D(x,G(x))) + L1(y,G(x))
         optim.adam(fGx, parametersG, optimStateG)
         
         -- display
-        counter = counter + 1
+
+        
         if counter % opt.display_freq == 0 and opt.display then
             createRealFake()
             if opt.preprocess == 'colorization' then 
@@ -362,8 +475,8 @@ for epoch = 1, opt.niter do
                 print('save to the disk')
                 if opt.preprocess == 'colorization' then 
                     for i2=1, fake_B:size(1) do
-                        if image_out==nil then image_out = torch.cat(util.deprocessL(real_A[i2]:float()),util.deprocessLAB(real_A[i2]:float(), fake_B[i2]:float()),3)/255.0
-                        else image_out = torch.cat(image_out, torch.cat(util.deprocessL(real_A[i2]:float()),util.deprocessLAB(real_A[i2]:float(), fake_B[i2]:float()),3)/255.0, 2) end
+                        if image_out==nil then image_out = torch.cat(util.deprocessL(real_A[i2]:float()),util.deprocessLAB(real_A[i2]:float(), fake_B[i2]:float()),3)
+                        else image_out = torch.cat(image_out, torch.cat(util.deprocessL(real_A[i2]:float()),util.deprocessLAB(real_A[i2]:float(), fake_B[i2]:float()),3), 2) end
                     end
                 else
                     for i2=1, fake_B:size(1) do
@@ -384,7 +497,7 @@ for epoch = 1, opt.niter do
                      epoch, ((i-1) / opt.batchSize),
                      math.floor(math.min(data:size(), opt.ntrain) / opt.batchSize),
                      tm:time().real / opt.batchSize, data_tm:time().real / opt.batchSize,
-                     errG and errG or -1, errD and errD or -1, errL1 and errL1 or -1))
+                     errG and errG or -1, errD/3 and errD/3 or -1, errL1 and errL1 or -1))
         end
         
         -- save latest model
@@ -393,11 +506,14 @@ for epoch = 1, opt.niter do
             torch.save(paths.concat(opt.checkpoints_dir, opt.name, 'latest_net_G.t7'), netG:clearState())
             torch.save(paths.concat(opt.checkpoints_dir, opt.name, 'latest_net_D.t7'), netD:clearState())
         end
+
+        counter = counter + 1
         
     end
     
-    
     parametersD, gradParametersD = nil, nil -- nil them to avoid spiking memory
+    parametersD_s2, gradParametersD_s2 = nil, nil -- nil them to avoid spiking memory
+    parametersD_s4, gradParametersD_s4 = nil, nil -- nil them to avoid spiking memory
     parametersG, gradParametersG = nil, nil
     
     if epoch % opt.save_epoch_freq == 0 then
@@ -408,5 +524,7 @@ for epoch = 1, opt.niter do
     print(('End of epoch %d / %d \t Time Taken: %.3f'):format(
             epoch, opt.niter, epoch_tm:time().real))
     parametersD, gradParametersD = netD:getParameters() -- reflatten the params and get them
+    parametersD_s2, gradParametersD_s2 = netD_s2:getParameters() -- reflatten the params and get them
+    parametersD_s4, gradParametersD_s4 = netD_s4:getParameters() -- reflatten the params and get them
     parametersG, gradParametersG = netG:getParameters()
 end
