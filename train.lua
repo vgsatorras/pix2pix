@@ -29,7 +29,7 @@ opt = {
    display = 1,            -- display samples while training. 0 = false
    display_id = 10,        -- display window id.
    gpu = 1,                -- gpu = 0 is CPU mode. gpu=X is GPU mode on GPU X
-   name = 'v19_mse_4DL_3D_swt',-- name of the experiment, should generally be passed on the command line
+   name = 'v21_newUnet',-- name of the experiment, should generally be passed on the command line
    which_direction = 'AtoB',    -- AtoB or BtoA
    phase = 'train',             -- train, val, test, etc
    preprocess = 'colorization',      -- for special purpose preprocessing, e.g., for colorization, change this (selects preprocessing functions in util.lua)
@@ -54,7 +54,7 @@ opt = {
    lambda_d256 = 0.333,
    lambda_d128 = 0.333,
    lambda_d64 = 0.333,
-   share_weights = true        -- Share Weights of the discriminator 64x64 <--> 128, 256
+   share_weights = false        -- Share Weights of the discriminator 64x64 <--> 128, 256
 }
 
 -- one-line argument parser. parses enviroment variables to override the defaults
@@ -90,7 +90,6 @@ print('#threads...' .. opt.nThreads)
 local data = data_loader.new(opt.nThreads, opt)
 print("Dataset Size: ", data:size())
 tmp_d, tmp_paths = data:getBatch()
-
 ----------------------------------------------------------------------------
 local function weights_init(m)
    local name = torch.type(m)
@@ -233,6 +232,7 @@ function createRealFake()
     -- load real
     data_tm:reset(); data_tm:resume()
     local real_data, data_path = data:getBatch()
+
     data_tm:stop()
     
     real_A:copy(real_data[{ {}, idx_A, {}, {} }])

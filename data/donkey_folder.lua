@@ -20,7 +20,7 @@ paths.dofile('dataset.lua')
 --print(os.getenv('DATA_ROOT'))
 --opt.data = paths.concat(os.getenv('DATA_ROOT'), opt.phase)
 opt.data = paths.concat('/imatge/vgarcia/datasets/places', opt.phase)
-
+print(opt.data)
 
 
 if not paths.dirp(opt.data) then

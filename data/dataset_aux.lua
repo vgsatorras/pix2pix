@@ -1,6 +1,7 @@
 --[[
     Copyright (c) 2015-present, Facebook, Inc.
     All rights reserved.
+
     This source code is licensed under the BSD-style license found in the
     LICENSE file in the root directory of this source tree. An additional grant
     of patent rights can be found in the PATENTS file in the same directory.
@@ -170,8 +171,12 @@ function dataset:__init(...)
    for i=1,#self.classes do
       classFindFiles[i] = os.tmpname()
    end
-   local combinedFindList = os.tmpname();
+   --local combinedFindList = os.tmpname();
+   local combinedFindList = '/imatge/vgarcia/projects/deep_learning/Places/trainvalsplit_places205/' .. opt.phase .. '_places205.csv'
+   local images_path = '/imatge/vgarcia/projects/deep_learning/Places/data/vision/torralba/deeplearning/images256'
 
+   print ("checkpoint 1")
+   --[[
    local tmpfile = os.tmpname()
    local tmphandle = assert(io.open(tmpfile, 'w'))
    -- iterate over classes
@@ -183,6 +188,8 @@ function dataset:__init(...)
          tmphandle:write(command)
       end
    end
+   print ("checkpoint 2")
+   
    io.close(tmphandle)
    os.execute('bash ' .. tmpfile)
    os.execute('rm -f ' .. tmpfile)
@@ -191,13 +198,19 @@ function dataset:__init(...)
    local tmpfile = os.tmpname()
    local tmphandle = assert(io.open(tmpfile, 'w'))
    -- concat all finds to a single large file in the order of self.classes
+   
    for i=1,#self.classes do
       local command = 'cat "' .. classFindFiles[i] .. '" >>' .. combinedFindList .. ' \n'
       tmphandle:write(command)
    end
+   
+   print ("checkpoint 3")
    io.close(tmphandle)
+   ]]--
+   --[[
    os.execute('bash ' .. tmpfile)
    os.execute('rm -f ' .. tmpfile)
+   ]]--
 
    --==========================================================================
    print('load the large concatenated list of sample paths to self.imagePath')
@@ -205,18 +218,24 @@ function dataset:__init(...)
                                                   .. combinedFindList .. "' |"
                                                   .. cut .. " -f1 -d' '"
    print('cmd..' .. cmd)
+   print ("checkpoint 4")
    local maxPathLength = tonumber(sys.fexecute(wc .. " -L '"
                                                   .. combinedFindList .. "' |"
                                                   .. cut .. " -f1 -d' '")) + 1
    local length = tonumber(sys.fexecute(wc .. " -l '"
                                            .. combinedFindList .. "' |"
                                            .. cut .. " -f1 -d' '"))
+   print ("checkpoint 5")
    assert(length > 0, "Could not find any image file in the given input paths")
    assert(maxPathLength > 0, "paths of files are length 0?")
    self.imagePath:resize(length, maxPathLength):fill(0)
    local s_data = self.imagePath:data()
    local count = 0
-   for line in io.lines(combinedFindList) do
+   print ("checkpoint 6")
+   for line_aux in io.lines(combinedFindList) do
+      local_path, _ = line_aux:match("([^,]+) ([^,]+)")
+      line = images_path .. '/' .. local_path
+      --print (line)
       ffi.copy(s_data, line)
       s_data = s_data + maxPathLength
       if self.verbose and count % 10000 == 0 then
@@ -233,9 +252,9 @@ function dataset:__init(...)
    local runningIndex = 0
    for i=1,#self.classes do
       if self.verbose then xlua.progress(i, #(self.classes)) end
-      local length = tonumber(sys.fexecute(wc .. " -l '"
-                                              .. classFindFiles[i] .. "' |"
-                                              .. cut .. " -f1 -d' '"))
+      --local length = tonumber(sys.fexecute(wc .. " -l '"
+      --                                        .. classFindFiles[i] .. "' |"
+      --                                        .. cut .. " -f1 -d' '"))
       if length == 0 then
          error('Class has zero samples')
       else
@@ -247,7 +266,7 @@ function dataset:__init(...)
 
    --==========================================================================
    -- clean up temporary files
-   print('Cleaning up temporary files')
+   --[[print('Cleaning up temporary files')
    local tmpfilelistall = ''
    for i=1,#(classFindFiles) do
       tmpfilelistall = tmpfilelistall .. ' "' .. classFindFiles[i] .. '"'
@@ -257,7 +276,7 @@ function dataset:__init(...)
       end
    end
    os.execute('rm -f '  .. tmpfilelistall)
-   os.execute('rm -f "' .. combinedFindList .. '"')
+   os.execute('rm -f "' .. combinedFindList .. '"')--]]
    --==========================================================================
 
    if self.split == 100 then
@@ -349,8 +368,8 @@ local function tableToOutput(self, dataTable, scalarTable)
 --   print(self.sampleSize[2])
 --   print(self.sampleSize[3])
    data = torch.Tensor(quantity,
-           self.sampleSize[1], self.sampleSize[2], self.sampleSize[3])
---   print(data:size())
+		       self.sampleSize[1], self.sampleSize[2], self.sampleSize[3])
+--	 print(data:size())
    scalarLabels = torch.LongTensor(quantity):fill(-1111)
    for i=1,#dataTable do
       data[i]:copy(dataTable[i])
