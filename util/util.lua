@@ -219,4 +219,34 @@ function util.cudnn(net)
 	return cudnn_convert_custom(net, cudnn)
 end
 
+
+
+-- HANDLING LABELS
+
+function util.split(str,sep)
+  local array = {}
+  local reg = string.format("([^%s]+)",sep)
+  for mem in string.gmatch(str,reg) do
+    table.insert(array, mem)
+  end
+  return array
+end
+
+function util.table_invert(t)
+  local u = { }
+  for k, v in pairs(t) do u[v] = k end
+  return u
+end
+
+function util.get_labels()
+  return {"bakery#shop", "forest_path", "office", "desert#vegetation", "forest_road", "train_railway", "shopfront", "nursery", "bedroom", "mansion", "beauty_salon", "schoolhouse", "coffee_shop", "rope_bridge", "shoe_shop", "racecourse", "courthouse", "hotel#outdoor", "fairway", "ruin", "cemetery", "abbey", "temple#south_asia", "marsh", "pulpit", "inn#outdoor", "skyscraper", "museum#indoor", "train_station#platform", "dam", "golf_course", "coast", "dock", "conference_room", "assembly_line", "basement", "pavilion", "bowling_alley", "veranda", "bar", "jail_cell", "harbor", "valley", "boat_deck", "phone_booth", "food_court", "trench", "rice_paddy", "sea_cliff", "volcano", "tower", "river", "dining_room", "auditorium", "ski_slope", "shed", "home_office", "creek", "rock_arch", "attic", "pantry", "waiting_room", "driveway", "swimming_pool#outdoor", "pasture", "excavation", "railroad_track", "dinette#home", "staircase", "closet", "aqueduct", "motel", "candy_store", "fountain", "playground", "construction_site", "crosswalk", "highway", "hot_spring", "stadium#football", "gas_station", "formal_garden", "living_room", "supermarket", "cockpit", "mountain", "gift_shop", "aquarium", "slum", "butte", "boxing_ring", "kitchen", "stage#indoor", "courtyard", "yard", "restaurant", "kitchenette", "plaza", "office_building", "pagoda", "field#wild", "rainforest", "castle", "mausoleum", "monastery#outdoor", "wheat_field", "sky", "amusement_park", "kindergarden_classroom", "vegetable_garden", "television_studio", "canyon", "restaurant_patio", "islet", "cafeteria", "lighthouse", "palace", "hospital", "galley", "subway_station#platform", "bayou", "restaurant_kitchen", "botanical_garden", "field#cultivated", "doorway#outdoor", "raft", "underwater#coral_reef", "stadium#baseball", "art_studio", "ice_skating_rink#outdoor", "chalet", "cottage_garden", "tree_farm", "market#outdoor", "cathedral#outdoor", "bookstore", "alley", "hotel_room", "desert#sand", "iceberg", "orchard", "airport_terminal", "hospital_room", "runway", "track#outdoor", "shower", "snowfield", "clothing_store", "residential_neighborhood", "garbage_dump", "kasbah", "bridge", "basilica", "crevasse", "campsite", "art_gallery", "amphitheater", "viaduct", "boardwalk", "banquet_hall", "bus_interior", "sandbar", "pond", "fire_escape", "herb_garden", "corn_field", "music_studio", "game_room", "parlor", "ski_resort", "corridor", "locker_room", "engine_room", "wind_farm", "temple#east_asia", "topiary_garden", "windmill", "fire_station", "ballroom", "ice_cream_parlor", "mountain_snowy", "medina", "conference_center", "water_tower", "watering_hole", "church#outdoor", "parking_lot", "arch", "lobby", "butchers_shop", "classroom", "dorm_room", "badlands", "building_facade", "picnic_area", "ocean", "swamp", "martial_arts_gym", "reception", "baseball_field", "bamboo_forest", "apartment_building#outdoor", "laundromat", "patio", "igloo"}
+end
+
+--TIME
+
+function sleep(s)
+  local ntime = os.time() + s
+  repeat until os.time() > ntime
+end
+
 return util

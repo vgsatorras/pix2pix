@@ -19,9 +19,11 @@ paths.dofile('dataset.lua')
 -- Check for existence of opt.data
 --print(os.getenv('DATA_ROOT'))
 --opt.data = paths.concat(os.getenv('DATA_ROOT'), opt.phase)
+
+folder_path = '/imatge/vgarcia/projects/deep_learning/Places/data/vision/torralba/deeplearning/images256'
+
 opt.data = paths.concat('/imatge/vgarcia/datasets/places', opt.phase)
 print(opt.data)
-
 
 if not paths.dirp(opt.data) then
     error('Did not find directory: ' .. opt.data)
@@ -138,7 +140,8 @@ local mean,std
 -- Hooks that are used for each image that is loaded
 
 -- function to load the image, jitter it appropriately (random crops etc.)
-local trainHook = function(self, path)
+local trainHook = function(self, path_local)
+   path = folder_path .. "/" .. path_local
    collectgarbage()
    if opt.preprocess == 'regular' then
 --     print('process regular')

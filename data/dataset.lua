@@ -17,6 +17,12 @@ require 'sys'
 require 'xlua'
 require 'image'
 
+
+function sleep(s)
+  local ntime = os.time() + s
+  repeat until os.time() > ntime
+end
+
 local dataset = torch.class('dataLoader')
 
 local initcheck = argcheck{
@@ -183,9 +189,12 @@ function dataset:__init(...)
          tmphandle:write(command)
       end
    end
+
+   --[[
    io.close(tmphandle)
    os.execute('bash ' .. tmpfile)
    os.execute('rm -f ' .. tmpfile)
+   --]]
 
    print('now combine all the files to a single large file')
    local tmpfile = os.tmpname()
@@ -195,9 +204,13 @@ function dataset:__init(...)
       local command = 'cat "' .. classFindFiles[i] .. '" >>' .. combinedFindList .. ' \n'
       tmphandle:write(command)
    end
+   --[[
    io.close(tmphandle)
    os.execute('bash ' .. tmpfile)
    os.execute('rm -f ' .. tmpfile)
+   --]]
+   --local combinedFindList = '/imatge/vgarcia/pix2pix/datasets/' .. opt.phase .. '_places205.csv'
+   local combinedFindList = '/imatge/vgarcia/projects/deep_learning/Places/trainvalsplit_places205/' .. opt.phase .. '_places205.csv'
 
    --==========================================================================
    print('load the large concatenated list of sample paths to self.imagePath')
@@ -216,8 +229,10 @@ function dataset:__init(...)
    self.imagePath:resize(length, maxPathLength):fill(0)
    local s_data = self.imagePath:data()
    local count = 0
-   for line in io.lines(combinedFindList) do
-      ffi.copy(s_data, line)
+   for line_aux in io.lines(combinedFindList) do
+      local_path, _ = line_aux:match("([^,]+) ([^,]+)")
+      --print(line)
+      ffi.copy(s_data, local_path)
       s_data = s_data + maxPathLength
       if self.verbose and count % 10000 == 0 then
          xlua.progress(count, length)
@@ -233,9 +248,9 @@ function dataset:__init(...)
    local runningIndex = 0
    for i=1,#self.classes do
       if self.verbose then xlua.progress(i, #(self.classes)) end
-      local length = tonumber(sys.fexecute(wc .. " -l '"
-                                              .. classFindFiles[i] .. "' |"
-                                              .. cut .. " -f1 -d' '"))
+      --local length = tonumber(sys.fexecute(wc .. " -l '"
+      --                                        .. classFindFiles[i] .. "' |"
+      --                                        .. cut .. " -f1 -d' '"))
       if length == 0 then
          error('Class has zero samples')
       else
@@ -256,8 +271,11 @@ function dataset:__init(...)
          tmpfilelistall = ''
       end
    end
+
+   --[[
    os.execute('rm -f '  .. tmpfilelistall)
    os.execute('rm -f "' .. combinedFindList .. '"')
+   ]]--
    --==========================================================================
 
    if self.split == 100 then

@@ -93,7 +93,6 @@ function dataset:__init(...)
 
    -- argcheck
    local args =  initcheck(...)
-   print(args)
    for k,v in pairs(args) do self[k] = v end
 
    if not self.loadSize then self.loadSize = self.sampleSize; end
@@ -172,7 +171,9 @@ function dataset:__init(...)
       classFindFiles[i] = os.tmpname()
    end
    --local combinedFindList = os.tmpname();
-   local combinedFindList = '/imatge/vgarcia/projects/deep_learning/Places/trainvalsplit_places205/' .. opt.phase .. '_places205.csv'
+   
+   --local combinedFindList = '/imatge/vgarcia/projects/deep_learning/Places/trainvalsplit_places205/' .. opt.phase .. '_places205.csv'
+   local combinedFindList = '/imatge/vgarcia/pix2pix/datasets/' .. opt.phase .. '_places205.csv'
    local images_path = '/imatge/vgarcia/projects/deep_learning/Places/data/vision/torralba/deeplearning/images256'
 
    print ("checkpoint 1")
@@ -234,7 +235,7 @@ function dataset:__init(...)
    print ("checkpoint 6")
    for line_aux in io.lines(combinedFindList) do
       local_path, _ = line_aux:match("([^,]+) ([^,]+)")
-      line = images_path .. '/' .. local_path
+      line = images_path .. '/' .. local_path .. '\n'
       --print (line)
       ffi.copy(s_data, line)
       s_data = s_data + maxPathLength
