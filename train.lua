@@ -14,8 +14,8 @@ require 'graph'
 opt = {
    --DATA_ROOT = '/imatge/vgarcia/pix2pix/datasets/facades',         -- path to images (should have subfolders 'train', 'val', etc)
    DATA_ROOT = '/imatge/vgarcia/datasets/places',
-   batchSize = 1,          -- # images in batch
-   loadSize = 286,         -- scale images to this size
+   batchSize = 30,          -- # images in batch
+   loadSize = 256,         -- scale images to this size
    fineSize = 256,         --  then crop to this size
    ngf = 64,               -- #  of gen filters in first conv layer
    ndf = 64,               -- #  of discrim filters in first conv layer
@@ -29,16 +29,16 @@ opt = {
    display = 1,            -- display samples while training. 0 = false
    display_id = 10,        -- display window id.
    gpu = 1,                -- gpu = 0 is CPU mode. gpu=X is GPU mode on GPU X
-   name = 'v21_newUnet',-- name of the experiment, should generally be passed on the command line
+   name = 'v27',-- name of the experiment, should generally be passed on the command line
    which_direction = 'AtoB',    -- AtoB or BtoA
    phase = 'train',             -- train, val, test, etc
    preprocess = 'colorization',      -- for special purpose preprocessing, e.g., for colorization, change this (selects preprocessing functions in util.lua)
    nThreads = 2,                -- # threads for loading data
    save_epoch_freq = 50,        -- save a model every save_epoch_freq epochs (does not overwrite previously saved models)
    save_latest_freq = 5000,     -- save the latest model every latest_freq sgd iterations (overwrites the previous latest model)
-   print_freq = 50,             -- print the debug information every print_freq iterations
+   print_freq = 5,             -- print the debug information every print_freq iterations
    display_freq = 100,          -- display the current results every display_freq iterations
-   save_display_freq = 5000,    -- save the current display of results every save_display_freq_iterations
+   save_display_freq = 200,    -- save the current display of results every save_display_freq_iterations
    continue_train=0,            -- if continue training, load the latest model: 1: true, 0: false
    serial_batches = 0,          -- if 1, takes images in order to make batches, otherwise takes them randomly
    serial_batch_iter = 1,       -- iter into serial image list
@@ -54,7 +54,7 @@ opt = {
    lambda_d256 = 0.333,
    lambda_d128 = 0.333,
    lambda_d64 = 0.333,
-   share_weights = false        -- Share Weights of the discriminator 64x64 <--> 128, 256
+   share_weights = true        -- Share Weights of the discriminator 64x64 <--> 128, 256
 }
 
 -- one-line argument parser. parses enviroment variables to override the defaults
@@ -440,6 +440,7 @@ for epoch = 1, opt.niter do
         
         -- (2) Update G network: maximize log(D(x,G(x))) + L1(y,G(x))
         optim.adam(fGx, parametersG, optimStateG)
+        --optim.adadelta(fGx, parametersG)
         
         -- display
 
@@ -468,7 +469,7 @@ for epoch = 1, opt.niter do
             opt.serial_batch_iter=1
             
             local image_out = nil
-            local N_save_display = 10
+            local N_save_display = math.max(10, opt.batchSize)
             for i3=1, torch.floor(N_save_display/opt.batchSize) do
             
                 createRealFake()
@@ -485,8 +486,8 @@ for epoch = 1, opt.niter do
                     end
                 end
             end
-            image.save(paths.concat(opt.checkpoints_dir,  opt.name , counter .. '_train_res.png'), image_out)
-            
+
+            image.save(paths.concat(opt.checkpoints_dir,  opt.name, counter .. '_train_res.png'), image_out)
             opt.serial_batches=serial_batches
         end
         
