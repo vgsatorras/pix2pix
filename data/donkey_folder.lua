@@ -26,7 +26,7 @@ opt.data = paths.concat('/imatge/vgarcia/datasets/places', opt.phase)
 print(opt.data)
 
 if not paths.dirp(opt.data) then
-    error('Did not find directory: ' .. opt.data)
+    --error('Did not find directory: ' .. opt.data)
 end
 
 -- a cache file of the training metadata (if doesnt exist, will be created)

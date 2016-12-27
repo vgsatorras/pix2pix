@@ -18,10 +18,6 @@ require 'xlua'
 require 'image'
 
 
-function sleep(s)
-  local ntime = os.time() + s
-  repeat until os.time() > ntime
-end
 
 local dataset = torch.class('dataLoader')
 

@@ -6,6 +6,8 @@
 ]]--
 
 local Threads = require 'threads'
+util = paths.dofile('../util/util.lua')
+
 Threads.serialization('threads.sharedserialize')
 
 local data = {}
@@ -105,8 +107,29 @@ function data:getBatch()
       img_data = unpack(img_data)
    end
 
+   -- Extract labels from path
+   labels = torch.Tensor(#img_paths)
+   for i=1,#img_paths do
+      parsed_path = util.split(img_paths[i], "/")
+      label = ""
+      for j=2,#parsed_path-1 do
+        if #label == 0 then
+          label = label .. parsed_path[j]
+        else
+          label = label .. "#" .. parsed_path[j]
+        end
+      end
 
-   return img_data, img_paths
+      --Get numeric label from name
+      inverse_labels = util.get_inverse_labels(label)
+      numeric_label = inverse_labels[label]
+      labels[{i}] = numeric_label 
+   end
+
+   labels = labels:double()
+   
+
+   return img_data, img_paths, labels
 end
 
 function data:size()

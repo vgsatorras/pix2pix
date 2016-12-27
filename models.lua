@@ -2,10 +2,10 @@ require 'nngraph'
 
 
 
-function defineG_unet(input_nc, output_nc, ngf)
+function defineG_unet(input_nc, output_nc, ngf, n_class)
     
     -- input is (nc) x 256 x 256
-    input = - nn.SpatialConvolution(input_nc, ngf, 3, 3, 2, 2, 1, 1)
+    input = - nn.SpatialConvolution(input_nc, ngf, 5, 5, 2, 2, 1, 1)
     e1 = input - nn.LeakyReLU(0.2, true) - nn.SpatialConvolution(ngf, ngf, 3, 3, 1, 1, 1, 1) - nn.SpatialBatchNormalization(ngf)
     -- input is (ngf) x 128 x 128
     x = e1 - nn.LeakyReLU(0.2, true) - nn.SpatialConvolution(ngf, ngf * 2, 3, 3, 2, 2, 1, 1) - nn.SpatialBatchNormalization(ngf * 2)
@@ -26,16 +26,16 @@ function defineG_unet(input_nc, output_nc, ngf)
     x = e6 - nn.LeakyReLU(0.2, true) - nn.SpatialConvolution(ngf * 8, ngf * 8, 3, 3, 2, 2, 1, 1) - nn.SpatialBatchNormalization(ngf * 8)
     e7 = x - nn.LeakyReLU(0.2, true) - nn.SpatialConvolution(ngf * 8, ngf * 8, 3, 3, 1, 1, 1, 1) - nn.SpatialBatchNormalization(ngf * 8)
     -- input is (ngf * 8) x 2 x 2
-    e8 = e7 - nn.LeakyReLU(0.2, true) - nn.SpatialConvolution(ngf * 8, ngf * 8, 3, 3, 2, 2, 1, 1) - nn.SpatialBatchNormalization(ngf * 8)
+    e8 = e7 - nn.LeakyReLU(0.2, true) - nn.SpatialConvolution(ngf * 8, ngf * 16, 3, 3, 2, 2, 1, 1) - nn.SpatialBatchNormalization(ngf * 16)
     -- input is (ngf * 8) x 1 x 1
     
-    d1_ = e8 - nn.ReLU(true) - nn.SpatialFullConvolution(ngf * 8, ngf * 8, 4, 4, 2, 2, 1, 1) - nn.SpatialBatchNormalization(ngf * 8) - nn.Dropout(0.5)
+    d1_ = e8 - nn.ReLU(true) - nn.SpatialFullConvolution(ngf * 16, ngf * 8, 4, 4, 2, 2, 1, 1) - nn.SpatialBatchNormalization(ngf * 8) - nn.Dropout(0.4)
     -- input is (ngf * 8) x 2 x 2
     d1 = {d1_,e7} - nn.JoinTable(2)
-    d2_ = d1 - nn.ReLU(true) - nn.SpatialFullConvolution(ngf * 8 * 2, ngf * 8, 4, 4, 2, 2, 1, 1) - nn.SpatialBatchNormalization(ngf * 8) - nn.Dropout(0.5)
+    d2_ = d1 - nn.ReLU(true) - nn.SpatialFullConvolution(ngf * 8 * 2, ngf * 8, 4, 4, 2, 2, 1, 1) - nn.SpatialBatchNormalization(ngf * 8) - nn.Dropout(0.4)
     -- input is (ngf * 8) x 4 x 4
     d2 = {d2_,e6} - nn.JoinTable(2)
-    d3_ = d2 - nn.ReLU(true) - nn.SpatialFullConvolution(ngf * 8 * 2, ngf * 8, 4, 4, 2, 2, 1, 1) - nn.SpatialBatchNormalization(ngf * 8) - nn.Dropout(0.5)
+    d3_ = d2 - nn.ReLU(true) - nn.SpatialFullConvolution(ngf * 8 * 2, ngf * 8, 4, 4, 2, 2, 1, 1) - nn.SpatialBatchNormalization(ngf * 8) - nn.Dropout(0.4)
     -- input is (ngf * 8) x 8 x 8
     d3 = {d3_,e5} - nn.JoinTable(2)
     d4_ = d3 - nn.ReLU(true) - nn.SpatialFullConvolution(ngf * 8 * 2, ngf * 8, 4, 4, 2, 2, 1, 1) - nn.SpatialBatchNormalization(ngf * 8)
@@ -54,8 +54,12 @@ function defineG_unet(input_nc, output_nc, ngf)
     -- input is (nc) x 256 x 256
     
     o1 = d8 - nn.Tanh()
+
+
+    x = e8 - nn.Dropout(0.2) - nn.ReLU(true) - nn.View(1024) 
+    o_class = x - nn.Linear(1024, 768) - nn.Dropout(0.2) - nn.ReLU(true) - nn.Linear(768, n_class) - nn.LogSoftMax()
     
-    netG = nn.gModule({input},{o1})
+    netG = nn.gModule({input},{o1, o_class})
     
     --graph.dot(netG.fg,'netG')
     
