@@ -20,9 +20,9 @@ paths.dofile('dataset.lua')
 --print(os.getenv('DATA_ROOT'))
 --opt.data = paths.concat(os.getenv('DATA_ROOT'), opt.phase)
 
-folder_path = '/imatge/vgarcia/projects/deep_learning/Places/data/vision/torralba/deeplearning/images256'
-
-opt.data = paths.concat('/imatge/vgarcia/datasets/places', opt.phase)
+--folder_path = '/imatge/vgarcia/projects/deep_learning/Places/data/vision/torralba/deeplearning/images256'
+folder_path = opt.DATA_ROOT
+opt.data = paths.concat(opt.DATA_ROOT)
 print(opt.data)
 
 if not paths.dirp(opt.data) then
@@ -141,7 +141,11 @@ local mean,std
 
 -- function to load the image, jitter it appropriately (random crops etc.)
 local trainHook = function(self, path_local)
-   path = folder_path .. "/" .. path_local
+   if #(opt.find_list) > 0 then
+       path = folder_path .. "/" .. path_local
+   else
+       path = path_local
+   end
    collectgarbage()
    if opt.preprocess == 'regular' then
 --     print('process regular')

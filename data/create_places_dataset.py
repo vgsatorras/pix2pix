@@ -195,12 +195,12 @@ class DataLoader():
 
 
 def save_worker(image, root, label, name):
-    path = root+label+'/'+name
+    path = root+'p_'+label+'__'+name
     Image.fromarray(image).save(path)
 
 
 
-def main(train_images = 300000, val_images = 20000, max_memory_images = 300):
+def main(train_images = 0, val_images = 10000, max_memory_images = 300):
     print "Loading labels.."
     LOADER = DataLoader(images_path = images_path_train, 
                             labels_path = labels_path_train,
@@ -215,7 +215,7 @@ def main(train_images = 300000, val_images = 20000, max_memory_images = 300):
     print LOADER.vocab_labels
     print "\nVocab single"
     print LOADER.vocab_single
-    _init_(LOADER.vocab_labels)
+    _init_()
 
     f = open('../datasets/places/classes.txt', 'w')
     f.write('\n\nvocab_labels\n')
@@ -227,6 +227,7 @@ def main(train_images = 300000, val_images = 20000, max_memory_images = 300):
     print "Labels loaded.."
 
     f = open('../datasets/places/creation_log.txt', 'w')
+    '''
     f.write("\n*****Saving Training******\n")
     print "*****Saving Training******"
     iters = 0
@@ -243,7 +244,7 @@ def main(train_images = 300000, val_images = 20000, max_memory_images = 300):
         print "Iteration "+str(iters)+" from "+str(train_images)+" completed"
         f.write("\nIteration "+str(iters)+" from "+str(train_images)+" completed")
         f.flush()
-
+    '''
     f.write("\n*****Saving Validation******\n")
     print "*****Saving Validation******"
     iters = 0
@@ -252,7 +253,10 @@ def main(train_images = 300000, val_images = 20000, max_memory_images = 300):
         val_batch, paths, labels = LOADER_VAL.load_data(verbose = 0)
         if LOADER_VAL.epoch > 0: break
         for j in range(val_batch.shape[0]):
-            j = threading.Thread(target=save_worker, args=(val_batch[j], labels[j], '../datasets/places/val/'+str(iters)+'.png'))
+            parsed_path = paths[j].split('/')
+            name = parsed_path[len(parsed_path)-1]
+            name = (name.split('.'))[0]+'.png'
+            j = threading.Thread(target=save_worker, args=(val_batch[j], '../datasets/places/val/', labels[j], name))
             j.start()
             jobs.append(j)
             iters += 1

@@ -113,6 +113,12 @@ function dataset:__init(...)
       end
    end
    local function tableFind(t, o) for k,v in pairs(t) do if v == o then return k end end end
+
+   if #opt.find_list > 0 then
+      use_file = true
+   else
+      use_file = false
+   end
    -- loop over each paths folder, get list of unique class names,
    -- also store the directory paths per class
    -- for each class,
@@ -186,11 +192,11 @@ function dataset:__init(...)
       end
    end
 
-   --[[
-   io.close(tmphandle)
-   os.execute('bash ' .. tmpfile)
-   os.execute('rm -f ' .. tmpfile)
-   --]]
+   if use_file == false then
+      io.close(tmphandle)
+      os.execute('bash ' .. tmpfile)
+      os.execute('rm -f ' .. tmpfile)
+   end
 
    print('now combine all the files to a single large file')
    local tmpfile = os.tmpname()
@@ -200,14 +206,17 @@ function dataset:__init(...)
       local command = 'cat "' .. classFindFiles[i] .. '" >>' .. combinedFindList .. ' \n'
       tmphandle:write(command)
    end
-   --[[
-   io.close(tmphandle)
-   os.execute('bash ' .. tmpfile)
-   os.execute('rm -f ' .. tmpfile)
-   --]]
-   --local combinedFindList = '/imatge/vgarcia/pix2pix/datasets/' .. opt.phase .. '_places205.csv'
-   local combinedFindList = '/imatge/vgarcia/projects/deep_learning/Places/trainvalsplit_places205/' .. opt.phase .. '_places205.csv'
 
+   if use_file == false then
+      io.close(tmphandle)
+      os.execute('bash ' .. tmpfile)
+      os.execute('rm -f ' .. tmpfile)
+   end
+
+   --local combinedFindList = '/imatge/vgarcia/projects/deep_learning/Places/trainvalsplit_places205/' .. opt.phase .. '_places205.csv'
+   if use_file == true then
+      combinedFindList = opt.find_list
+   end
    --==========================================================================
    print('load the large concatenated list of sample paths to self.imagePath')
    local cmd = wc .. " -L '"
@@ -226,7 +235,11 @@ function dataset:__init(...)
    local s_data = self.imagePath:data()
    local count = 0
    for line_aux in io.lines(combinedFindList) do
-      local_path, _ = line_aux:match("([^,]+) ([^,]+)")
+      if use_file == true then
+         local_path, _ = line_aux:match("([^,]+) ([^,]+)")
+      else
+         local_path = line_aux
+      end
       --print(line)
       ffi.copy(s_data, local_path)
       s_data = s_data + maxPathLength
@@ -244,9 +257,13 @@ function dataset:__init(...)
    local runningIndex = 0
    for i=1,#self.classes do
       if self.verbose then xlua.progress(i, #(self.classes)) end
-      --local length = tonumber(sys.fexecute(wc .. " -l '"
-      --                                        .. classFindFiles[i] .. "' |"
-      --                                        .. cut .. " -f1 -d' '"))
+
+      if use_file == false then
+         local length = tonumber(sys.fexecute(wc .. " -l '"
+                                                 .. classFindFiles[i] .. "' |"
+                                                 .. cut .. " -f1 -d' '"))
+      end
+
       if length == 0 then
          error('Class has zero samples')
       else
@@ -268,10 +285,10 @@ function dataset:__init(...)
       end
    end
 
-   --[[
-   os.execute('rm -f '  .. tmpfilelistall)
-   os.execute('rm -f "' .. combinedFindList .. '"')
-   ]]--
+   if use_file == false then
+      os.execute('rm -f '  .. tmpfilelistall)
+      os.execute('rm -f "' .. combinedFindList .. '"')
+   end
    --==========================================================================
 
    if self.split == 100 then

@@ -13,8 +13,9 @@ require 'graph'
 
 opt = {
    --DATA_ROOT = '/imatge/vgarcia/pix2pix/datasets/facades',         -- path to images (should have subfolders 'train', 'val', etc)
-   DATA_ROOT = '/imatge/vgarcia/datasets/places',
-   batchSize = 30,          -- # images in batch
+   DATA_ROOT = '/imatge/vgarcia/projects/deep_learning/Places/data/vision/torralba/deeplearning/images256',
+   find_list = '/imatge/vgarcia/projects/deep_learning/Places/trainvalsplit_places205/train_places205.csv',
+    batchSize = 25,          -- # images in batch
    loadSize = 256,         -- scale images to this size
    fineSize = 256,         --  then crop to this size
    ngf = 64,               -- #  of gen filters in first conv layer
@@ -29,13 +30,13 @@ opt = {
    display = 1,            -- display samples while training. 0 = false
    display_id = 10,        -- display window id.
    gpu = 1,                -- gpu = 0 is CPU mode. gpu=X is GPU mode on GPU X
-   name = 'v33_train',-- name of the experiment, should generally be passed on the command line
+   name = 'v52',-- name of the experiment, should generally be passed on the command line
    which_direction = 'AtoB',    -- AtoB or BtoA
    phase = 'train',             -- train, val, test, etc
    preprocess = 'colorization',      -- for special purpose preprocessing, e.g., for colorization, change this (selects preprocessing functions in util.lua)
    nThreads = 2,                -- # threads for loading data
    save_epoch_freq = 30,        -- save a model every save_epoch_freq epochs (does not overwrite previously saved models)
-   save_latest_freq = 1000,     -- save the latest model every latest_freq sgd iterations (overwrites the previous latest model)
+   save_latest_freq = 500,     -- save the latest model every latest_freq sgd iterations (overwrites the previous latest model)
    print_freq = 2,             -- print the debug information every print_freq iterations
    display_freq = 100,          -- display the current results every display_freq iterations
    save_display_freq = 150,    -- save the current display of results every save_display_freq_iterations
@@ -51,11 +52,11 @@ opt = {
    which_model_netD = 'n_layers', -- selects model to use for netD
    which_model_netG = 'unet',  -- selects model to use for netG
    n_layers_D = 4,             -- only used if which_model_netD=='n_layers'
-   lambda = 150,               -- weight on L1 term in objective
-   lambda_class = 1,           -- weight on the Class Loss
-   lambda_d256 = 0.333,
-   lambda_d128 = 0.333,
-   lambda_d64 = 0.333,
+   lambda = 180,               -- weight on L1 term in objective
+   lambda_class = 0,           -- weight on the Class Loss, default: 0.66
+   lambda_d256 = 0.4,          -- default 0.4
+   lambda_d128 = 0.4,          -- default 0.4
+   lambda_d64 = 0.2,           -- default 0.2
    share_weights = true        -- Share Weights of the discriminator 64x64 <--> 128, 256
 }
 
@@ -114,12 +115,13 @@ function defineG(input_nc, output_nc, ngf, nz, n_class)
    
     if     opt.which_model_netG == "encoder_decoder" then netG = defineG_encoder_decoder(input_nc, output_nc, ngf, nz, 3)
     elseif opt.which_model_netG == "unet" then netG = defineG_unet(input_nc, output_nc, ngf, n_class)
+    --elseif opt.which_model_netG == "densenet" then netG = defineG_densenet(input_nc, output_nc, 48, n_class, 5, 16, {4, 5, 7, 10, 12, 15, 12, 10, 7, 5, 4}, dropout_p)
+
     else error("unsupported netG model")
     end
    
    netG:apply(weights_init)
 
-   
    --graph.dot(netG.fg, 'netG',  opt.checkpoints_dir .. '/' .. opt.name .. '/' .. 'schemes' .. '/' .. 'netG')
 
    

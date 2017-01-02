@@ -258,6 +258,15 @@ function util.inList(element, array)
   return false
 end
 
+-- LISTS
+
+function util.list_reverse(list)
+  list_response = {}
+  for i = #list,1,-1 do
+    table.insert(list_response, list[i])
+  end
+  return list_response
+end
 
 --TIME
 function util.sleep(s)

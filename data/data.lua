@@ -109,21 +109,24 @@ function data:getBatch()
 
    -- Extract labels from path
    labels = torch.Tensor(#img_paths)
-   for i=1,#img_paths do
-      parsed_path = util.split(img_paths[i], "/")
-      label = ""
-      for j=2,#parsed_path-1 do
-        if #label == 0 then
-          label = label .. parsed_path[j]
-        else
-          label = label .. "#" .. parsed_path[j]
-        end
-      end
 
-      --Get numeric label from name
-      inverse_labels = util.get_inverse_labels(label)
-      numeric_label = inverse_labels[label]
-      labels[{i}] = numeric_label 
+   if #(opt.find_list) > 0 then
+      for i=1,#img_paths do
+         parsed_path = util.split(img_paths[i], "/")
+         label = ""
+         for j=2,#parsed_path-1 do
+           if #label == 0 then
+             label = label .. parsed_path[j]
+           else
+             label = label .. "#" .. parsed_path[j]
+           end
+         end
+
+         --Get numeric label from name
+         inverse_labels = util.get_inverse_labels(label)
+         numeric_label = inverse_labels[label]
+         labels[{i}] = numeric_label
+      end
    end
 
    labels = labels:double()
