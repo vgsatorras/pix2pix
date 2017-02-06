@@ -260,14 +260,15 @@ function defineG_unet(input_nc, output_nc, ngf, n_class)
     -- input is (ngf * 2) x 64 x 64
     d6 = {d6_,e2} - nn.JoinTable(2)
     x = d6 - nn.ReLU(true) - nn.SpatialConvolution(ngf * 2 * 2, ngf, 3, 3, 1, 1, 1, 1) - nn.SpatialBatchNormalization(ngf)
-    d7_ = x - nn.ReLU(true) - nn.SpatialFullConvolution(ngf, ngf, 4, 4, 2, 2, 1, 1) - nn.SpatialBatchNormalization(ngf)
+    --d7_ = x - nn.ReLU(true) - nn.SpatialFullConvolution(ngf, output_nc, 4, 4, 2, 2, 1, 1) - nn.SpatialBatchNormalization(ngf)
+    d7 = x - nn.ReLU(true) - nn.SpatialFullConvolution(ngf, output_nc, 4, 4, 2, 2, 1, 1)
     -- input is (ngf) x128 x 128
     --d7 = {d7_,e1} - nn.JoinTable(2)
-    d8 = d7_ - nn.ReLU(true) - nn.SpatialFullConvolution(ngf, output_nc, 4, 4, 2, 2, 1, 1)
+    --d8 = d7_ - nn.ReLU(true) - nn.SpatialFullConvolution(ngf, output_nc, 4, 4, 2, 2, 1, 1)
 
     -- input is (nc) x 256 x 256
     
-    o1 = d8 - nn.Tanh()
+    o1 = d7 - nn.Tanh()
 
 
     x = e7 - nn.ReLU(true) - nn.View(1024) 
@@ -425,12 +426,6 @@ function defineC(n_class)
 end
 
 
-function defineDownSampling_net()
-    local net = nn.Sequential()
-    net:add(nn.SpatialAveragePooling(2,2,2,2))
-    return net
-end
-
 function defineD_sn(netD, n)
     local netD_sn = nn.Sequential()
     for i = 1,n do
@@ -446,8 +441,19 @@ function defineD_s4(netD)
     netD_s4:add(nn.SpatialAveragePooling(2,2,2,2))
     netD_s4:add(netD)
     return netD_s4
-end 
+end
 
+function define_upsampler_net()
+    local upsampler_net = nn.Sequential()
+    upsampler_net:add(nn.SpatialUpSamplingNearest(2))
+    return upsampler_net
+end
+
+function define_downsampler_net()
+    local downsampler_net = nn.Sequential()
+    downsampler_net:add(nn.SpatialAveragePooling(2,2,2,2))
+    return downsampler_net
+end
 
 function defineD_basic(input_nc, output_nc, ndf)
     
@@ -485,7 +491,7 @@ end
 --            142 if n=4
 --            286 if n=5
 --            574 if n=6
-function defineD_n_layers(input_nc, output_nc, ndf, n_layers)
+function defineD_n_layers(input_nc, output_nc, ndf, n_layers, classes_disc)
     
     if n_layers==0 then
         return defineD_pixelGAN(input_nc, output_nc, ndf)
@@ -508,10 +514,10 @@ function defineD_n_layers(input_nc, output_nc, ndf, n_layers)
         -- state size: (ndf*M) x N x N
         nf_mult_prev = nf_mult
         nf_mult = math.min(2^n_layers,8)
-        netD:add(nn.SpatialConvolution(ndf * nf_mult_prev, ndf * nf_mult, 4, 4, 1, 1, 1, 1))
-        netD:add(nn.SpatialBatchNormalization(ndf * nf_mult)):add(nn.LeakyReLU(0.2, true))
+        netD:add(nn.SpatialConvolution(ndf * nf_mult_prev, math.floor(ndf * nf_mult * 1.5), 4, 4, 2, 2, 1, 1))
+        netD:add(nn.SpatialBatchNormalization(math.floor(ndf * nf_mult * 1.5))):add(nn.LeakyReLU(0.2, true))
         -- state size: (ndf*M*2) x (N-1) x (N-1)
-        netD:add(nn.SpatialConvolution(ndf * nf_mult, 1, 4, 4, 1, 1, 1, 1))
+        netD:add(nn.SpatialConvolution(math.floor(ndf * nf_mult * 1.5), classes_disc, 4, 4, 1, 1, 0, 0))
         -- state size: 1 x (N-2) x (N-2)
         
         netD:add(nn.Sigmoid())

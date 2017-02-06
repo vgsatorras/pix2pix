@@ -30,16 +30,16 @@ opt = {
    display = 1,            -- display samples while training. 0 = false
    display_id = 10,        -- display window id.
    gpu = 1,                -- gpu = 0 is CPU mode. gpu=X is GPU mode on GPU X
-   name = 'v52',-- name of the experiment, should generally be passed on the command line
+   name = 'v56_one_disc',-- name of the experiment, should generally be passed on the command line
    which_direction = 'AtoB',    -- AtoB or BtoA
    phase = 'train',             -- train, val, test, etc
    preprocess = 'colorization',      -- for special purpose preprocessing, e.g., for colorization, change this (selects preprocessing functions in util.lua)
    nThreads = 2,                -- # threads for loading data
-   save_epoch_freq = 30,        -- save a model every save_epoch_freq epochs (does not overwrite previously saved models)
+   save_epoch_freq = 1,        -- save a model every save_epoch_freq epochs (does not overwrite previously saved models)
    save_latest_freq = 500,     -- save the latest model every latest_freq sgd iterations (overwrites the previous latest model)
    print_freq = 2,             -- print the debug information every print_freq iterations
-   display_freq = 100,          -- display the current results every display_freq iterations
-   save_display_freq = 150,    -- save the current display of results every save_display_freq_iterations
+   display_freq = 500,          -- display the current results every display_freq iterations
+   save_display_freq = 500,    -- save the current display of results every save_display_freq_iterations
    continue_train=0,            -- if continue training, load the latest model: 1: true, 0: false
    serial_batches = 0,          -- if 1, takes images in order to make batches, otherwise takes them randomly
    serial_batch_iter = 1,       -- iter into serial image list
@@ -52,12 +52,11 @@ opt = {
    which_model_netD = 'n_layers', -- selects model to use for netD
    which_model_netG = 'unet',  -- selects model to use for netG
    n_layers_D = 4,             -- only used if which_model_netD=='n_layers'
-   lambda = 180,               -- weight on L1 term in objective
-   lambda_class = 0,           -- weight on the Class Loss, default: 0.66
-   lambda_d256 = 0.4,          -- default 0.4
-   lambda_d128 = 0.4,          -- default 0.4
-   lambda_d64 = 0.2,           -- default 0.2
-   share_weights = true        -- Share Weights of the discriminator 64x64 <--> 128, 256
+   lambda = 25,               -- weight on L1 term in objective
+   lambda_class = 0.3,        -- weight on the Class Loss, default: 0.66
+   lambda_GAN = 1.0,          -- default 0.4
+   share_weights = true,        -- Share Weights of the discriminator 64x64 <--> 128, 256
+   multiple_discr = false
 }
 
 -- one-line argument parser. parses enviroment variables to override the defaults
@@ -128,7 +127,7 @@ function defineG(input_nc, output_nc, ngf, nz, n_class)
    return netG
 end
 
-function defineD(input_nc, output_nc, ndf)
+function defineD(input_nc, output_nc, ndf, classes_disc)
     
     local netD = nil
     if opt.condition_GAN==1 then
@@ -137,8 +136,12 @@ function defineD(input_nc, output_nc, ndf)
         input_nc_tmp = 0 -- only penalizes structure in output channels
     end
     
+    if opt.multiple_discr == false then
+      classes_disc = 1
+    end
+
     if     opt.which_model_netD == "basic" then netD = defineD_basic(input_nc_tmp, output_nc, ndf)
-    elseif opt.which_model_netD == "n_layers" then netD = defineD_n_layers(input_nc_tmp, output_nc, ndf, opt.n_layers_D)
+    elseif opt.which_model_netD == "n_layers" then netD = defineD_n_layers(input_nc_tmp, output_nc, ndf, opt.n_layers_D, classes_disc)
     else error("unsupported netD model")
     end
     
@@ -158,25 +161,29 @@ else
   print('define model netG...')
   netG = defineG(input_nc, output_nc, ngf, nz, #util.get_labels())
   print('define model netD...')
-  netD = defineD(input_nc, output_nc, ndf)
-  print ('define model netD_s2...')
+  netD = defineD(input_nc, output_nc, ndf, #util.get_labels())
+  print('CHECKPOINT 1')
+  upsampler_net = define_upsampler_net()
+  downsampler_net = define_downsampler_net()
+  --[[print ('define model netD_s2...')
   netD_s2 = defineD_sn(netD:clone('weight','bias'), 1)
   print ('define model netD_s4...')
   if opt.share_weights == true then
     netD_s4 = defineD_sn(netD:clone('weight','bias'), 2)
   else
     netD_s4 = defineD_sn(defineD(input_nc, output_nc, ndf), 2)
-  end 
+  end ]]--
 end
 
 print('\nnetG')
 print(netG)
 print('\nnetD')
 print(netD)
-print('\nnetD_s2')
-print(netD_s2)
-print('\nnetD_s4')
-print(netD_s4)
+print('\ndownsampler_net')
+print(downsampler_net)
+print('\nupsampler_net')
+print(upsampler_net)
+
 
 
 
@@ -198,11 +205,16 @@ optimStateAdadelta = {
 ----------------------------------------------------------------------------
 local labels = torch.Tensor(opt.batchSize)
 local labels_pred = torch.Tensor(opt.batchSize, #util.get_labels())
-local real_A = torch.Tensor(opt.batchSize, input_nc, opt.fineSize, opt.fineSize)
-local real_B = torch.Tensor(opt.batchSize, output_nc, opt.fineSize, opt.fineSize)
-local fake_B = torch.Tensor(opt.batchSize, output_nc, opt.fineSize, opt.fineSize)
-local real_AB = torch.Tensor(opt.batchSize, output_nc + input_nc*opt.condition_GAN, opt.fineSize, opt.fineSize)
-local fake_AB = torch.Tensor(opt.batchSize, output_nc + input_nc*opt.condition_GAN, opt.fineSize, opt.fineSize)
+local real_A_128 = torch.Tensor(opt.batchSize, input_nc, opt.fineSize/2, opt.fineSize/2)
+local real_A_256 = torch.Tensor(opt.batchSize, input_nc, opt.fineSize, opt.fineSize)
+local real_B_128 = torch.Tensor(opt.batchSize, output_nc, opt.fineSize/2, opt.fineSize/2)
+local real_B_256 = torch.Tensor(opt.batchSize, output_nc, opt.fineSize, opt.fineSize)
+local fake_B_128 = torch.Tensor(opt.batchSize, output_nc, opt.fineSize/2, opt.fineSize/2)
+local fake_B_256 = torch.Tensor(opt.batchSize, output_nc, opt.fineSize, opt.fineSize)
+local real_AB_128 = torch.Tensor(opt.batchSize, output_nc + input_nc*opt.condition_GAN, opt.fineSize/2, opt.fineSize/2)
+local real_AB_256 = torch.Tensor(opt.batchSize, output_nc + input_nc*opt.condition_GAN, opt.fineSize, opt.fineSize)
+local fake_AB_128 = torch.Tensor(opt.batchSize, output_nc + input_nc*opt.condition_GAN, opt.fineSize/2, opt.fineSize/2)
+local fake_AB_256 = torch.Tensor(opt.batchSize, output_nc + input_nc*opt.condition_GAN, opt.fineSize, opt.fineSize)
 local errD, errG_s0, errG_s2, errG_s4, errG, errL1 = 0, 0, 0, 0, 0, 0, 0, 0
 local epoch_tm = torch.Timer()
 local tm = torch.Timer()
@@ -215,23 +227,24 @@ if opt.gpu > 0 then
    cutorch.setDevice(opt.gpu)
    labels = labels:cuda();
    labels_pred = labels_pred:cuda();
-   real_A = real_A:cuda();
-   real_B = real_B:cuda(); fake_B = fake_B:cuda();
-   real_AB = real_AB:cuda(); fake_AB = fake_AB:cuda();
-   
+   real_A_128 = real_A_128:cuda();
+   real_A_256 = real_A_256:cuda();
+   real_B_128 = real_B_128:cuda(); fake_B_128 = fake_B_128:cuda();
+   real_B_256 = real_B_256:cuda(); fake_B_256 = fake_B_256:cuda();
+   real_AB_128 = real_AB_128:cuda(); fake_AB_128 = fake_AB_128:cuda();
+   real_AB_256 = real_AB_256:cuda(); fake_AB_256 = fake_AB_256:cuda();
+
    if opt.cudnn==1 then
-      netG = util.cudnn(netG); netD = util.cudnn(netD); netD_s2 = util.cudnn(netD_s2);  netD_s4 = util.cudnn(netD_s4)
+      netG = util.cudnn(netG); netD = util.cudnn(netD); upsampler_net = util.cudnn(upsampler_net); downsampler_net = util.cudnn(downsampler_net);
    end
-   netD:cuda(); netG:cuda(); netD_s2:cuda(); netD_s4:cuda(); criterion:cuda(); criterionAE:cuda(); criterionMSE:cuda(); critertionNLL:cuda();
+   netD:cuda(); netG:cuda(); criterion:cuda(); criterionAE:cuda(); critertionNLL:cuda(); upsampler_net:cuda(); downsampler_net:cuda();
    print('done')
 else
-	print('running model on CPU')
+  print('running model on CPU')
 end
 
 
 local parametersD, gradParametersD = netD:getParameters()
-local parametersD_s2, gradParametersD_s2 = netD_s2:getParameters()
-local parametersD_s4, gradParametersD_s4 = netD_s4:getParameters()
 local parametersG, gradParametersG = netG:getParameters()
 
 
@@ -245,29 +258,61 @@ function createRealFake()
     local real_data, data_path, data_labels = data:getBatch()
 
     data_tm:stop()
-    real_A:copy(real_data[{ {}, idx_A, {}, {} }])
-    real_B:copy(real_data[{ {}, idx_B, {}, {} }])
+    real_A_256:copy(real_data[{ {}, idx_A, {}, {} }])
+    real_B_256:copy(real_data[{ {}, idx_B, {}, {} }])
+
+    output_downsampler = downsampler_net:forward(real_A_256)
+    real_A_128 = output_downsampler:clone()
+
+    output_downsampler = downsampler_net:forward(real_B_256)
+    real_B_128 = output_downsampler:clone()
+    
+
     labels:copy(data_labels[{}])
     
+
     if opt.condition_GAN==1 then
-        real_AB = torch.cat(real_A,real_B,2)
+        real_AB_256 = torch.cat(real_A_256,real_B_256,2)
     else
-        real_AB = real_B -- unconditional GAN, only penalizes structure in B
+        real_AB_256 = real_B_256 -- unconditional GAN, only penalizes structure in B
     end
+    output_downsampler = downsampler_net:forward(real_AB_256)
+    real_AB_128 = output_downsampler:clone()
     -- create fake
-    
-    netG_output = netG:forward(real_A)
-    fake_B = netG_output[1]
+    netG_output = netG:forward(real_A_256)
+    fake_B_128 = netG_output[1]
     labels_pred = netG_output[2]
+    output_upsampler = upsampler_net:forward(fake_B_128)
+    fake_B_256 = output_upsampler:clone()
     if opt.condition_GAN==1 then
-        fake_AB = torch.cat(real_A,fake_B,2)
+        fake_AB_128 = torch.cat(real_A_128,fake_B_128,2)
     else
-        fake_AB = fake_B -- unconditional GAN, only penalizes structure in B
+        fake_AB_128 = fake_B_128 -- unconditional GAN, only penalizes structure in B
     end
 
-    local predict_real = netD:forward(real_AB)
-    local predict_fake = netD:forward(fake_AB)
+    output_upsampler = upsampler_net:forward(fake_AB_128)
+    fake_AB_256 = output_upsampler:clone()
+
+
+
+    local predict_real = netD:forward(real_AB_128)
+    local predict_fake = netD:forward(fake_AB_128)
+
+
 end
+
+function filter_grad(df_do)
+  for i = 1,df_do:size()[1] do
+    for j = 1,df_do:size()[2] do
+      if labels[i] ~= j then
+        df_do[i][j] = 0
+      end 
+    end
+  end
+  return df_do*(#util.get_labels())
+end
+
+
 
 -- create closure to evaluate f(X) and df/dX of discriminator
 local fDx_sn = function(netD_sn, gradParametersD_sn)
@@ -277,7 +322,7 @@ local fDx_sn = function(netD_sn, gradParametersD_sn)
     gradParametersD_sn:zero()
     
     -- Real sn
-    local output_sn = netD_sn:forward(real_AB)
+    local output_sn = netD_sn:forward(real_AB_128)
     local label_sn = torch.FloatTensor(output_sn:size()):fill(real_label)
     if opt.gpu>0 then 
       label_sn = label_sn:cuda()
@@ -285,15 +330,22 @@ local fDx_sn = function(netD_sn, gradParametersD_sn)
     
     local errD_real = criterion:forward(output_sn, label_sn)
     local df_do = criterion:backward(output_sn, label_sn)
-    netD_sn:backward(real_AB, df_do)
+    if opt.multiple_discr then
+      df_do = filter_grad(df_do)
+      
+    end
+    netD_sn:backward(real_AB_128, df_do)
 
 
     -- Fake sn
-    local output_sn = netD_sn:forward(fake_AB)
+    local output_sn = netD_sn:forward(fake_AB_128)
     label_sn:fill(fake_label)
     local errD_fake = criterion:forward(output_sn, label_sn)
     local df_do = criterion:backward(output_sn, label_sn)
-    netD_sn:backward(fake_AB, df_do)
+    if opt.multiple_discr then
+      df_do = filter_grad(df_do)
+    end
+    netD_sn:backward(fake_AB_128, df_do)
  
 
     errD_sn = (errD_real + errD_fake)/2
@@ -305,14 +357,6 @@ local fDx_s0 = function(x)
    return fDx_sn(netD, gradParametersD)
 end
 
-local fDx_s2 = function(x)
-    return fDx_sn(netD_s2, gradParametersD_s2) 
-end
-
-local fDx_s4 = function(x)
-    return fDx_sn(netD_s4, gradParametersD_s4) 
-end
-
 
 -- create closure to evaluate f(X) and df/dX of generator
 local fGx = function(x)
@@ -322,9 +366,9 @@ local fGx = function(x)
     gradParametersG:zero()
     
     -- GAN loss
-    local df_dg = torch.zeros(fake_B:size())
+    local df_dg = torch.zeros(fake_B_128:size())
     if opt.gpu>0 then 
-    	df_dg = df_dg:cuda();
+      df_dg = df_dg:cuda();
     end
     
     if opt.use_GAN==1 then
@@ -332,36 +376,14 @@ local fGx = function(x)
        local output = netD.output -- netD:forward{input_A,input_B} was already executed in fDx, so save computation
        local label = torch.FloatTensor(output:size()):fill(real_label) -- fake labels are real for generator cost
        if opt.gpu>0 then 
-       	label = label:cuda();
-       	end
+        label = label:cuda();
+        end
        errG_s0 = criterion:forward(output, label)
        local df_do = criterion:backward(output, label)
-       df_dg = netD:updateGradInput(fake_AB, df_do):narrow(2,fake_AB:size(2)-output_nc+1, output_nc)
-
-       
-       -- s2
-       local output_s2 = netD_s2.output -- netD:forward{input_A,input_B} was already executed in fDx, so save computation
-       local label_s2 = torch.FloatTensor(output_s2:size()):fill(real_label) -- fake labels are real for generator cost
-       if opt.gpu>0 then 
-        label_s2 = label_s2:cuda();
+       if opt.multiple_discr then
+         df_do = filter_grad(df_do)
        end
-
-       errG_s2 = criterion:forward(output_s2, label_s2)
-       local df_do = criterion:backward(output_s2, label_s2)
-       updated_gradients = netD_s2:updateGradInput(fake_AB, df_do)
-       df_dg_s2 = updated_gradients:narrow(2,fake_AB:size(2)-output_nc+1, output_nc)
-
-       -- s4
-       local output_s4 = netD_s4.output -- netD:forward{input_A,input_B} was already executed in fDx, so save computation
-       local label_s4 = torch.FloatTensor(output_s4:size()):fill(real_label) -- fake labels are real for generator cost
-       if opt.gpu>0 then 
-        label_s4 = label_s4:cuda();
-       end
-
-       errG_s4 = criterion:forward(output_s4, label_s4)
-       local df_do = criterion:backward(output_s4, label_s4)
-       updated_gradients = netD_s4:updateGradInput(fake_AB, df_do)
-       df_dg_s4 = updated_gradients:narrow(2,fake_AB:size(2)-output_nc+1, output_nc)
+       df_dg = netD:updateGradInput(fake_AB_128, df_do):narrow(2,fake_AB_128:size(2)-output_nc+1, output_nc)
 
 
     else
@@ -369,13 +391,13 @@ local fGx = function(x)
     end
     
     -- unary loss
-    local df_do_AE = torch.zeros(fake_B:size())
+    local df_do_AE = torch.zeros(fake_B_128:size())
     if opt.gpu>0 then 
-    	df_do_AE = df_do_AE:cuda();
+      df_do_AE = df_do_AE:cuda();
     end
     if opt.use_L1==1 then
-       errL1 = criterionMSE:forward(fake_B, real_B)
-       df_do_AE = criterionMSE:backward(fake_B, real_B)
+       errL1 = criterionAE:forward(fake_B_128, real_B_128)
+       df_do_AE = criterionAE:backward(fake_B_128, real_B_128)
     else
         errL1 = 0
     end
@@ -389,13 +411,12 @@ local fGx = function(x)
         errClass = 0
     end 
     
-    netG:backward(real_A, {df_dg:mul(opt.lambda_d256) + df_dg_s2:mul(opt.lambda_d128) + df_dg_s4:mul(opt.lambda_d64) + df_do_AE:mul(opt.lambda), df_dc_NLL:mul(opt.lambda_class)})
+    netG:backward(real_A_256, {df_dg:mul(opt.lambda_GAN) + df_do_AE:mul(opt.lambda), df_dc_NLL:mul(opt.lambda_class)})
     
-    errG = (errG_s0*opt.lambda_d256 + errG_s2*opt.lambda_d128 + errG_s4*opt.lambda_d64)/(opt.lambda_d256 + opt.lambda_d128 + opt.lambda_d64)
+    errG = errG_s0*opt.lambda_GAN
     errG_total = errG + errL1*opt.lambda + errClass*opt.lambda_class
     return errG_total, gradParametersG
 end
-
 
 
 
@@ -415,7 +436,6 @@ for epoch = 1, opt.niter do
     epoch_tm:reset()
     for i = 1, math.min(data:size(), opt.ntrain), opt.batchSize do
         tm:reset()
-        
         -- load a batch and run G on that batch
         createRealFake()
         
@@ -423,8 +443,6 @@ for epoch = 1, opt.niter do
         if opt.use_GAN==1 then
           errD = 0
           optim.adam(fDx_s0, parametersD, optimStateD)
-          optim.adam(fDx_s2, parametersD_s2, optimStateD)
-          optim.adam(fDx_s4, parametersD_s4, optimStateD)
         end
         
         -- (2) Update G network: maximize log(D(x,G(x))) + L1(y,G(x))
@@ -434,25 +452,25 @@ for epoch = 1, opt.niter do
         -- display
 
         
-        if counter % opt.display_freq == 0 and opt.display then
+        if (counter % opt.display_freq == 0 or counter == 5 or counter == 25 or counter == 50 or counter == 100 or counter == 200 or counter == 400) and opt.display then
             createRealFake()
             if opt.preprocess == 'colorization' then 
-                local real_A_s = util.scaleBatch(real_A:float(),100,100)
-                local fake_B_s = util.scaleBatch(fake_B:float(),100,100)
-                local real_B_s = util.scaleBatch(real_B:float(),100,100)
+                local real_A_s = util.scaleBatch(real_A_256:float(),100,100)
+                local fake_B_s = util.scaleBatch(fake_B_256:float(),100,100)
+                local real_B_s = util.scaleBatch(real_B_256:float(),100,100)
                 disp.image(util.deprocessL_batch(real_A_s), {win=opt.display_id, title=opt.name .. ' input'})
                 disp.image(util.deprocessLAB_batch(real_A_s, fake_B_s), {win=opt.display_id+1, title=opt.name .. ' output'})
                 disp.image(util.deprocessLAB_batch(real_A_s, real_B_s), {win=opt.display_id+2, title=opt.name .. ' target'})
             else
-                disp.image(util.deprocess_batch(util.scaleBatch(real_A:float(),100,100)), {win=opt.display_id, title=opt.name .. ' input'})
-                disp.image(util.deprocess_batch(util.scaleBatch(fake_B:float(),100,100)), {win=opt.display_id+1, title=opt.name .. ' output'})
-                disp.image(util.deprocess_batch(util.scaleBatch(real_B:float(),100,100)), {win=opt.display_id+2, title=opt.name .. ' target'})
+                disp.image(util.deprocess_batch(util.scaleBatch(real_A_256:float(),100,100)), {win=opt.display_id, title=opt.name .. ' input'})
+                disp.image(util.deprocess_batch(util.scaleBatch(fake_B_256:float(),100,100)), {win=opt.display_id+1, title=opt.name .. ' output'})
+                disp.image(util.deprocess_batch(util.scaleBatch(real_B_256:float(),100,100)), {win=opt.display_id+2, title=opt.name .. ' target'})
             end
         end
       
         -- write display visualization to disk
         --  runs on the first batchSize images in the opt.phase set
-        if counter % opt.save_display_freq == 0 and opt.display then
+        if (counter % opt.save_display_freq == 0 or counter == 5 or counter == 25 or counter == 50 or counter == 100 or counter == 200 or counter == 400) and opt.display then
             local serial_batches=opt.serial_batches
             opt.serial_batches=1
             opt.serial_batch_iter=1
@@ -464,14 +482,14 @@ for epoch = 1, opt.niter do
                 createRealFake()
                 print('save to the disk')
                 if opt.preprocess == 'colorization' then 
-                    for i2=1, fake_B:size(1) do
-                        if image_out==nil then image_out = torch.cat(util.deprocessL(real_A[i2]:float()),util.deprocessLAB(real_A[i2]:float(), fake_B[i2]:float()),3)
-                        else image_out = torch.cat(image_out, torch.cat(util.deprocessL(real_A[i2]:float()),util.deprocessLAB(real_A[i2]:float(), fake_B[i2]:float()),3), 2) end
+                    for i2=1, fake_B_256:size(1) do
+                        if image_out==nil then image_out = torch.cat(util.deprocessL(real_A_256[i2]:float()),util.deprocessLAB(real_A_256[i2]:float(), fake_B_256[i2]:float()),3)
+                        else image_out = torch.cat(image_out, torch.cat(util.deprocessL(real_A_256[i2]:float()),util.deprocessLAB(real_A_256[i2]:float(), fake_B_256[i2]:float()),3), 2) end
                     end
                 else
-                    for i2=1, fake_B:size(1) do
-                        if image_out==nil then image_out = torch.cat(util.deprocess(real_A[i2]:float()),util.deprocess(fake_B[i2]:float()),3)
-                        else image_out = torch.cat(image_out, torch.cat(util.deprocess(real_A[i2]:float()),util.deprocess(fake_B[i2]:float()),3), 2) end
+                    for i2=1, fake_B_256:size(1) do
+                        if image_out==nil then image_out = torch.cat(util.deprocess(real_A_256[i2]:float()),util.deprocess(fake_B_256[i2]:float()),3)
+                        else image_out = torch.cat(image_out, torch.cat(util.deprocess(real_A_256[i2]:float()),util.deprocess(fake_B_256[i2]:float()),3), 2) end
                     end
                 end
             end
@@ -488,7 +506,7 @@ for epoch = 1, opt.niter do
                      epoch, ((i-1) / opt.batchSize),
                      math.floor(math.min(data:size(), opt.ntrain) / opt.batchSize),
                      tm:time().real / opt.batchSize, data_tm:time().real / opt.batchSize,
-                     errG and errG or -1, errD/3 and errD/3 or -1, errL1 and errL1 or -1, errClass and errClass or -1, top5acc and top5acc or -1))
+                     errG and errG or -1, errD and errD or -1, errL1 and errL1 or -1, errClass and errClass or -1, top5acc and top5acc or -1))
         end
         
         -- save latest model
